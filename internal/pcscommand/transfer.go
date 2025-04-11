@@ -415,36 +415,54 @@ func RunShareTransfer(params []string, opt *baidupcs.TransferOption) {
 		return
 	}
 	
-	transMetas["path"] = GetActiveUser().Workdir
-	if transMetas["item_num"] != "1" && opt.Collect {
-		transMetas["filename"] += "等文件"
-		transMetas["path"] = path.Join(GetActiveUser().Workdir, transMetas["filename"])
-		pcs.Mkdir(transMetas["path"])
-	}
 	transMetas["referer"] = "https://pan.baidu.com/s/" + featureStr
 	pcs.UpdatePCSCookies(true)
 	
 	// 显示转存信息
 	if targetPath != "" || opt.FsId > 0 || opt.Dir != "" {
-		fmt.Printf("准备转存: %s 到当前目录\n", transMetas["filename"])
+		fmt.Printf("准备转存: %s 到", transMetas["filename"])
+		if opt.SaveTo != "" {
+			fmt.Printf("目录: %s\n", opt.SaveTo)
+		} else {
+			fmt.Println("当前目录")
+		}
 	}
 	
-	resp := pcs.GenerateRequestQuery("POST", transMetas)
-	if resp["ErrNo"] != "0" {
-		fmt.Printf("%s失败: %s\n", baidupcs.OperationShareFileSavetoLocal, resp["ErrMsg"])
-		//if resp["ErrNo"] == "4" {
-		//	transMetas["shorturl"] = featureStr
-		//	pcs.SuperTransfer(transMetas, resp["limit"]) // 试验性功能, 当前未启用
-		//}
-		return
+	// 如果指定了SaveTo，使用TransferShareFile方法
+	if opt.SaveTo != "" {
+		result := pcs.TransferShareFile(transMetas, opt.SaveTo)
+		if result["ErrMsg"] != "success" {
+			fmt.Printf("%s失败: %s\n", baidupcs.OperationShareFileSavetoLocal, result["ErrMsg"])
+			return
+		}
+		fmt.Printf("%s成功, 保存了%s到目录: %s\n", baidupcs.OperationShareFileSavetoLocal, transMetas["filename"], opt.SaveTo)
+	} else {
+		// 使用原来的方法
+		transMetas["path"] = GetActiveUser().Workdir
+		if transMetas["item_num"] != "1" && opt.Collect {
+			transMetas["filename"] += "等文件"
+			transMetas["path"] = path.Join(GetActiveUser().Workdir, transMetas["filename"])
+			pcs.Mkdir(transMetas["path"])
+		}
+		
+		resp := pcs.GenerateRequestQuery("POST", transMetas)
+		if resp["ErrNo"] != "0" {
+			fmt.Printf("%s失败: %s\n", baidupcs.OperationShareFileSavetoLocal, resp["ErrMsg"])
+			//if resp["ErrNo"] == "4" {
+			//	transMetas["shorturl"] = featureStr
+			//	pcs.SuperTransfer(transMetas, resp["limit"]) // 试验性功能, 当前未启用
+			//}
+			return
+		}
+		if opt.Collect {
+			resp["filename"] = transMetas["filename"]
+		}
+		fmt.Printf("%s成功, 保存了%s到当前目录\n", baidupcs.OperationShareFileSavetoLocal, resp["filename"])
 	}
-	if opt.Collect {
-		resp["filename"] = transMetas["filename"]
-	}
-	fmt.Printf("%s成功, 保存了%s到当前目录\n", baidupcs.OperationShareFileSavetoLocal, resp["filename"])
+	
 	if opt.Download {
 		fmt.Println("即将开始下载")
-		paths := strings.Split(resp["filenames"], ",")
+		paths := strings.Split(transMetas["filenames"], ",")
 		paths = paths[0 : len(paths)-1]
 		RunDownload(paths, nil)
 	}

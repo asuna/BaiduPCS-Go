@@ -25,6 +25,7 @@ type (
 		Rname    bool   // 随机改文件名
 		Dir      string // 要转存的目录路径，空为根目录
 		FsId     int64  // 要转存的特定文件ID，0为转存当前目录下所有文件
+		SaveTo   string // 要转存到的目标目录路径
 	}
 )
 
@@ -1181,4 +1182,90 @@ func comparePathNames(name1, name2 string) bool {
 // SendReqReturnReadCloser 包装sendReqReturnReadCloser方法，提供给外部包使用
 func (pcs *BaiduPCS) SendReqReturnReadCloser(rt int, op, method, urlStr string, post interface{}, header map[string]string) (readCloser io.ReadCloser, pcsError pcserror.Error) {
 	return pcs.sendReqReturnReadCloser(reqType(rt), op, method, urlStr, post, header)
+}
+
+// TransferShareFile 转存分享文件，支持指定目标目录
+func (pcs *BaiduPCS) TransferShareFile(res map[string]string, saveTo string) (transferResult map[string]string) {
+	transferResult = make(map[string]string)
+	transferResult["ErrMsg"] = "success"
+	
+	// 检查是否已经有转存URL
+	if _, ok := res["shareUrl"]; !ok {
+		transferResult["ErrMsg"] = "无效的转存信息"
+		return
+	}
+	
+	// 解析现有URL
+	shareUrl, err := url.Parse(res["shareUrl"])
+	if err != nil {
+		transferResult["ErrMsg"] = "URL解析错误"
+		return
+	}
+	
+	// 获取当前查询参数
+	uv := shareUrl.Query()
+	
+	// 如果指定了目标目录，添加到查询参数中
+	if saveTo != "" {
+		// 确保目标目录以/开头
+		if !strings.HasPrefix(saveTo, "/") {
+			saveTo = "/" + saveTo
+		}
+		uv.Set("path", saveTo)
+		fmt.Printf("指定转存到目标目录: %s\n", saveTo)
+	}
+	
+	// 更新URL查询参数
+	shareUrl.RawQuery = uv.Encode()
+	
+	// 构建POST请求
+	postData := map[string]string{
+		"fsidlist": res["fs_id"],
+	}
+	if saveTo != "" {
+		postData["path"] = saveTo
+	}
+	
+	// 发送转存请求
+	dataReadCloser, panError := pcs.sendReqReturnReadCloser(reqTypePan, OperationShareFileSavetoLocal, http.MethodPost, shareUrl.String(), postData, map[string]string{
+		"User-Agent":   requester.UserAgent,
+		"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+		"Referer":      "https://pan.baidu.com/",
+	})
+	
+	if panError != nil {
+		transferResult["ErrMsg"] = "提交转存请求时发生错误: " + panError.Error()
+		return
+	}
+	defer dataReadCloser.Close()
+	
+	body, _ := ioutil.ReadAll(dataReadCloser)
+	errno := gjson.Get(string(body), `errno`).Int()
+	if errno != 0 {
+		// 处理错误情况
+		transferResult["ErrMsg"] = fmt.Sprintf("转存失败，错误码: %d", errno)
+		
+		// 特殊错误处理
+		if errno == 12 {
+			// 处理目录已存在等情况
+			pathErr := gjson.Get(string(body), `info.0.errno`).Int()
+			if pathErr == -30 {
+				transferResult["ErrMsg"] = "文件重复"
+			} else if pathErr != 0 {
+				transferResult["ErrMsg"] = fmt.Sprintf("文件系统错误，错误码: %d", pathErr)
+			}
+		} else if errno == 4 {
+			transferResult["ErrMsg"] = "文件重复"
+		} else if errno == 110 {
+			transferResult["ErrMsg"] = "请先登录"
+		} else if errno == -7 {
+			transferResult["ErrMsg"] = "转存功能被禁用"
+		}
+		
+		return
+	}
+	
+	// 转存成功
+	transferResult["ErrMsg"] = "success"
+	return
 }

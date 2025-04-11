@@ -1495,6 +1495,7 @@ func main() {
 					Rname:    c.Bool("rname"),
 					Dir:      c.String("dir"),
 					FsId:     c.Int64("fsid"),
+					SaveTo:   c.String("saveto"),
 				}
 				pcscommand.RunShareTransfer(c.Args(), opt)
 				return nil
@@ -1521,6 +1522,11 @@ func main() {
 					Name:  "fsid",
 					Usage: "指定要转存的文件ID，0为转存目录下所有文件",
 					Value: 0,
+				},
+				cli.StringFlag{
+					Name:  "saveto",
+					Usage: "指定转存到的目标目录路径",
+					Value: "",
 				},
 			},
 		},
