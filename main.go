@@ -1448,7 +1448,7 @@ func main() {
 		{
 			Name:      "transfer",
 			Usage:     "转存文件/目录",
-			UsageText: app.Name + " transfer <分享链接> <提取码>(如果有)",
+			UsageText: app.Name + " transfer [路径] <分享链接> <提取码>(如果有)",
 			Category:  "百度网盘",
 			Before:    reloadFn,
 			Description: `
@@ -1456,21 +1456,45 @@ func main() {
 	如果没有提取码或为整合式链接，则第二个位置留空；只能转存到当前网盘目录下，
 	分享链接支持常规百度云链接, 支持长短秒传链接
 	
+	支持转存共享链接中的特定文件或目录：
+	1. 直接在链接前指定要转存的路径（推荐方式）：
+	BaiduPCS-Go transfer /目录路径/文件名 pan.baidu.com/s/xxx 提取码
+	
+	2. 使用参数指定要转存的目录或文件ID：
+	--dir=\"目录路径\"       指定要转存的目录路径，空为根目录
+	--fsid=文件ID         指定要转存的特定文件ID，0为转存整个目录
+	注意：如果要转存的是文件，需要使用 --dir 指定文件所在目录路径，并设置 root=0 才能看到该目录中的文件列表
+	
 	实例：
 	BaiduPCS-Go transfer pan.baidu.com/s/1VYzSl7465sdrQXe8GT5RdQ 704e
 	BaiduPCS-Go transfer https://pan.baidu.com/s/1VYzSl7465sdrQXe8GT5RdQ 704e
 	BaiduPCS-Go transfer https://pan.baidu.com/s/1VYzSl7465sdrQXe8GT5RdQ?pwd=704e
-
+	
+	# 转存指定路径的文件（自动解析路径）
+	BaiduPCS-Go transfer /发货/股票/level2/win/2017-2024/2025/202504/20250407.7z pan.baidu.com/s/1xxx 1234
+	
+	# 转存子目录示例
+	BaiduPCS-Go transfer --dir="/文件夹/子文件夹" pan.baidu.com/s/1VYzSl7465sdrQXe8GT5RdQ 704e
+	
+	# 转存特定文件示例
+	BaiduPCS-Go transfer --dir="/文件夹/子文件夹" --fsid=123456789 pan.baidu.com/s/1VYzSl7465sdrQXe8GT5RdQ 704e
+	
+	3. 直接提供JSON响应内容（支持复制浏览器网络请求的响应）：
+	BaiduPCS-Go transfer '{\"errno\":0,...}' pan.baidu.com/s/xxx 提取码
+	可与路径组合使用：BaiduPCS-Go transfer /路径/文件名{\"errno\":0,...} pan.baidu.com/s/xxx 提取码
 	`,
 			Action: func(c *cli.Context) error {
-				if c.NArg() < 1 || c.NArg() > 2 {
+				if c.NArg() < 1 {
 					cli.ShowCommandHelp(c, c.Command.Name)
 					return nil
 				}
+				
 				opt := &baidupcs.TransferOption{
 					Download: c.Bool("download"),
 					Collect:  c.Bool("collect"),
 					Rname:    c.Bool("rname"),
+					Dir:      c.String("dir"),
+					FsId:     c.Int64("fsid"),
 				}
 				pcscommand.RunShareTransfer(c.Args(), opt)
 				return nil
@@ -1487,6 +1511,16 @@ func main() {
 				cli.BoolFlag{
 					Name:  "rname",
 					Usage: "秒传随机替换4位文件名提高成功率",
+				},
+				cli.StringFlag{
+					Name:  "dir",
+					Usage: "指定要转存的目录路径，空为根目录",
+					Value: "",
+				},
+				cli.Int64Flag{
+					Name:  "fsid",
+					Usage: "指定要转存的文件ID，0为转存目录下所有文件",
+					Value: 0,
 				},
 			},
 		},
