@@ -656,8 +656,49 @@ func (pcs *BaiduPCS) GetShareFileByPath(featureStr, targetPath, shareid, shareUK
 			fmt.Printf("  - 条目: %s (路径: %s, 是目录: %v)\n", fileName, filePath, isDir)
 			
 			// 如果发现共享链接中的路径与我们的目标路径相关，尝试找到最接近的父目录
-			if isDir && strings.Contains(decodeUnicode(filePath), decodeUnicode(parentDirPath)) {
+			if isDir && (strings.Contains(decodeUnicode(filePath), decodeUnicode(parentDirPath))) {
 				fmt.Printf("发现目标路径的可能父目录: %s\n", filePath)
+				
+				// 检查如果这个目录的名称与我们要找的目标名称匹配，则直接使用这个目录
+				fileNameParts := strings.Split(filePath, "/")
+				fileName := ""
+				if len(fileNameParts) > 0 {
+					fileName = fileNameParts[len(fileNameParts)-1]
+				}
+				
+				if fileName == targetFile {
+					// 找到了完全匹配的目录，直接使用它
+					fsId := file.Get("fs_id").Int()
+					fmt.Printf("找到完全匹配的目标目录: %s, FSID: %d\n", fileName, fsId)
+					
+					// 创建结果
+					res["shareid"] = shareid
+					res["from"] = shareUK
+					res["bdstoken"] = bdstoken
+					res["filename"] = fileName
+					res["item_num"] = "1"
+					res["ErrMsg"] = "success"
+					res["fs_id"] = fmt.Sprintf("[%d]", fsId)
+					
+					// 构建转存用URL
+					shareUrl := &url.URL{
+						Scheme: GetHTTPScheme(true),
+						Host:   PanBaiduCom,
+						Path:   "/share/transfer",
+					}
+					uv := shareUrl.Query()
+					uv.Set("app_id", PanAppID)
+					uv.Set("channel", "chunlei")
+					uv.Set("clienttype", "0")
+					uv.Set("web", "1")
+					for key, value := range res {
+						uv.Set(key, value)
+					}
+					shareUrl.RawQuery = uv.Encode()
+					res["shareUrl"] = shareUrl.String()
+					
+					return res
+				}
 				
 				// 尝试直接访问父目录的内容
 				parentDirContent := pcs.GetShareDirList(featureStr, filePath, shareid, shareUK, bdstoken)
@@ -702,17 +743,28 @@ func (pcs *BaiduPCS) GetShareFileByPath(featureStr, targetPath, shareid, shareUK
 									decodedFileName := decodeUnicode(fileName)
 									decodedTargetFile := decodeUnicode(targetFile)
 									
-									fmt.Printf("  检查文件: %s (%s), 目标: %s (%s)\n", 
-										fileName, decodedFileName, 
-										targetFile, decodedTargetFile)
+									// 修复三元运算符语法
+									dirType := ""
+									if isDir {
+										dirType = ", 类型: 目录"
+									}
+									fmt.Printf("  检查文件: %s (%s)%s\n", 
+										fileName, decodedFileName, dirType)
 									
-									if fileName == targetFile || 
+									// 检查是否找到了目标目录
+									if (fileName == targetFile || 
 									   decodedFileName == decodedTargetFile || 
 									   strings.Contains(fileName, targetFile) ||
-									   strings.Contains(decodedFileName, decodedTargetFile) {
-										// 找到目标文件
+									   strings.Contains(decodedFileName, decodedTargetFile)) {
+										// 找到目标文件或目录
 										fsId := dirFile.Get("fs_id").Int()
-										fmt.Printf("在父目录中找到目标文件: %s, FSID: %d\n", fileName, fsId)
+										isDir := dirFile.Get("isdir").Int() == 1
+										
+										if isDir {
+											fmt.Printf("在父目录中找到目标目录: %s, FSID: %d\n", fileName, fsId)
+										} else {
+											fmt.Printf("在父目录中找到目标文件: %s, FSID: %d\n", fileName, fsId)
+										}
 										
 										// 创建结果
 										res["shareid"] = shareid
@@ -778,6 +830,41 @@ func (pcs *BaiduPCS) GetShareFileByPath(featureStr, targetPath, shareid, shareUK
 				             strings.Contains(decodeUnicode(filePath), decodeUnicode(targetDirPath))) {
 					fmt.Printf("找到匹配的目录: %s, 路径: %s\n", fileName, filePath)
 					
+					// 如果发现目录名与目标文件名完全匹配，直接使用该目录
+					if fileName == targetFile {
+						// 找到了完全匹配的目录，直接使用它
+						fsId := file.Get("fs_id").Int()
+						fmt.Printf("找到完全匹配的目标目录: %s, FSID: %d\n", fileName, fsId)
+						
+						// 创建结果
+						res["shareid"] = shareid
+						res["from"] = shareUK
+						res["bdstoken"] = bdstoken
+						res["filename"] = fileName
+						res["item_num"] = "1"
+						res["ErrMsg"] = "success"
+						res["fs_id"] = fmt.Sprintf("[%d]", fsId)
+						
+						// 构建转存用URL
+						shareUrl := &url.URL{
+							Scheme: GetHTTPScheme(true),
+							Host:   PanBaiduCom,
+							Path:   "/share/transfer",
+						}
+						uv := shareUrl.Query()
+						uv.Set("app_id", PanAppID)
+						uv.Set("channel", "chunlei")
+						uv.Set("clienttype", "0")
+						uv.Set("web", "1")
+						for key, value := range res {
+							uv.Set(key, value)
+						}
+						shareUrl.RawQuery = uv.Encode()
+						res["shareUrl"] = shareUrl.String()
+						
+						return res
+					}
+					
 					// 获取该目录下的文件列表
 					dirUrl := pcs.GenerateShareQueryURL("list", map[string]string{
 						"bdstoken": bdstoken,
@@ -805,21 +892,71 @@ func (pcs *BaiduPCS) GetShareFileByPath(featureStr, targetPath, shareid, shareUK
 							dirFiles := gjson.Get(string(dirData), `list`).Array()
 							fmt.Printf("目录中有 %d 个文件/目录\n", len(dirFiles))
 							
+							// 先检查目录中是否存在与目标文件名完全匹配的目录
+							for _, dirFile := range dirFiles {
+								fileName := dirFile.Get("server_filename").String()
+								isDir := dirFile.Get("isdir").Int() == 1
+								
+								if isDir && fileName == targetFile {
+									// 找到了目标目录，直接使用此目录的fs_id
+									fsId := dirFile.Get("fs_id").Int()
+									fmt.Printf("找到目标目录: %s, FSID: %d\n", fileName, fsId)
+									
+									// 创建结果
+									res["shareid"] = shareid
+									res["from"] = shareUK
+									res["bdstoken"] = bdstoken
+									res["filename"] = fileName 
+									res["item_num"] = "1"
+									res["ErrMsg"] = "success"
+									res["fs_id"] = fmt.Sprintf("[%d]", fsId)
+									
+									// 构建转存用URL
+									shareUrl := &url.URL{
+										Scheme: GetHTTPScheme(true),
+										Host:   PanBaiduCom,
+										Path:   "/share/transfer",
+									}
+									uv := shareUrl.Query()
+									uv.Set("app_id", PanAppID)
+									uv.Set("channel", "chunlei")
+									uv.Set("clienttype", "0")
+									uv.Set("web", "1")
+									for key, value := range res {
+										uv.Set(key, value)
+									}
+									shareUrl.RawQuery = uv.Encode()
+									res["shareUrl"] = shareUrl.String()
+									
+									return res
+								}
+							}
+							
 							// 在目录中查找目标文件
 							for _, dirFile := range dirFiles {
 								fileName := dirFile.Get("server_filename").String()
 								decodedFileName := decodeUnicode(fileName)
 								decodedTargetFile := decodeUnicode(targetFile)
+								isDir := dirFile.Get("isdir").Int() == 1
 								
-								fmt.Printf("  检查文件: %s (%s)\n", fileName, decodedFileName)
+								// 修复三元运算符语法
+								dirType := ""
+								if isDir {
+									dirType = ", 类型: 目录"
+								}
+								fmt.Printf("  检查文件: %s (%s)%s\n", fileName, decodedFileName, dirType)
 								
 								if fileName == targetFile || 
 								   decodedFileName == decodedTargetFile || 
 								   strings.Contains(fileName, targetFile) ||
 								   strings.Contains(decodedFileName, decodedTargetFile) {
-									// 找到目标文件
+									// 找到目标文件/目录
 									fsId := dirFile.Get("fs_id").Int()
-									fmt.Printf("找到目标文件: %s, FSID: %d\n", fileName, fsId)
+									if isDir {
+										fmt.Printf("在深度搜索中找到目标目录: %s, FSID: %d\n", fileName, fsId)
+									} else {
+										fmt.Printf("在深度搜索中找到目标文件: %s, FSID: %d\n", fileName, fsId)
+									}
 									
 									// 创建结果
 									res["shareid"] = shareid
@@ -868,6 +1005,41 @@ func (pcs *BaiduPCS) GetShareFileByPath(featureStr, targetPath, shareid, shareUK
 			
 			fmt.Printf("深度搜索目录: %s (%s)\n", fileName, filePath)
 			
+			// 检查当前目录是否为目标目录
+			if fileName == targetFile {
+				// 找到了目标目录，直接使用它
+				fsId := file.Get("fs_id").Int()
+				fmt.Printf("在深度搜索中找到匹配的目标目录: %s, FSID: %d\n", fileName, fsId)
+				
+				// 创建结果
+				res["shareid"] = shareid
+				res["from"] = shareUK
+				res["bdstoken"] = bdstoken
+				res["filename"] = fileName
+				res["item_num"] = "1"
+				res["ErrMsg"] = "success"
+				res["fs_id"] = fmt.Sprintf("[%d]", fsId)
+				
+				// 构建转存用URL
+				shareUrl := &url.URL{
+					Scheme: GetHTTPScheme(true),
+					Host:   PanBaiduCom,
+					Path:   "/share/transfer",
+				}
+				uv := shareUrl.Query()
+				uv.Set("app_id", PanAppID)
+				uv.Set("channel", "chunlei")
+				uv.Set("clienttype", "0")
+				uv.Set("web", "1")
+				for key, value := range res {
+					uv.Set(key, value)
+				}
+				shareUrl.RawQuery = uv.Encode()
+				res["shareUrl"] = shareUrl.String()
+				
+				return res
+			}
+			
 			// 获取该目录下的文件列表
 			dirUrl := pcs.GenerateShareQueryURL("list", map[string]string{
 				"bdstoken": bdstoken,
@@ -878,6 +1050,8 @@ func (pcs *BaiduPCS) GetShareFileByPath(featureStr, targetPath, shareid, shareUK
 				"channel":  "chunlei",
 				"dir":      filePath,
 			}).String()
+			
+			fmt.Printf("查询目录内容: %s\n", dirUrl)
 			
 			dirDataCloser, dirError := pcs.sendReqReturnReadCloser(reqTypePan, OperationShareFileSavetoLocal, http.MethodGet, dirUrl, nil, map[string]string{
 				"User-Agent":   requester.UserAgent,
@@ -899,15 +1073,24 @@ func (pcs *BaiduPCS) GetShareFileByPath(featureStr, targetPath, shareid, shareUK
 						decodedFileName := decodeUnicode(curFileName)
 						decodedTargetFile := decodeUnicode(targetFile)
 						
-						fmt.Printf("  检查文件: %s (%s)\n", curFileName, decodedFileName)
+						// 修复三元运算符语法
+						dirType := ""
+						if isDir {
+							dirType = ", 类型: 目录"
+						}
+						fmt.Printf("  检查文件: %s (%s)%s\n", curFileName, decodedFileName, dirType)
 						
 						if curFileName == targetFile || 
 						   decodedFileName == decodedTargetFile || 
 						   strings.Contains(curFileName, targetFile) ||
 						   strings.Contains(decodedFileName, decodedTargetFile) {
-							// 找到目标文件
+							// 找到目标文件/目录
 							fsId := dirFile.Get("fs_id").Int()
-							fmt.Printf("在深度搜索中找到目标文件: %s, FSID: %d\n", curFileName, fsId)
+							if isDir {
+								fmt.Printf("在深度搜索中找到目标目录: %s, FSID: %d\n", curFileName, fsId)
+							} else {
+								fmt.Printf("在深度搜索中找到目标文件: %s, FSID: %d\n", curFileName, fsId)
+							}
 							
 							// 创建结果
 							res["shareid"] = shareid
