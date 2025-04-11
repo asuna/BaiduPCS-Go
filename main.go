@@ -1496,6 +1496,7 @@ func main() {
 					Dir:      c.String("dir"),
 					FsId:     c.Int64("fsid"),
 					SaveTo:   c.String("saveto"),
+					Select:   c.String("select"),
 				}
 				pcscommand.RunShareTransfer(c.Args(), opt)
 				return nil
@@ -1526,6 +1527,11 @@ func main() {
 				cli.StringFlag{
 					Name:  "saveto",
 					Usage: "指定转存到的目标目录路径",
+					Value: "",
+				},
+				cli.StringFlag{
+					Name:  "select",
+					Usage: "选择需要转存的文件或目录，多个用逗号分隔",
 					Value: "",
 				},
 			},
