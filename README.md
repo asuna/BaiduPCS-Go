@@ -805,13 +805,14 @@ BaiduPCS-Go mv /我的资源/1.mp4 /我的资源/3.mp4
 BaiduPCS-Go transfer <分享链接> <提取码>
 ```
 
-注意: 转存文件保存到当前工作目录下, 不支持指定.
+注意: ~~转存文件保存到当前工作目录下, 不支持指定.~~ 可使用-saveto参数指定保存目录。
 
 #### 例子
 ```
 # 将 https://pan.baidu.com/s/12L_ZZVNxz5f_2CccoyyVrW (提取码edv4) 转存到当前目录
 BaiduPCS-Go transfer https://pan.baidu.com/s/12L_ZZVNxz5f_2CccoyyVrW edv4
 BaiduPCS-Go transfer https://pan.baidu.com/s/12L_ZZVNxz5f_2CccoyyVrW?pwd=edv4
+BaiduPCS-Go transfer -saveto /我的资源 -select dir1,dir2,file1,file2 /path/in/share/link/url https://pan.baidu.com/s/12L_ZZVNxz5f_2CccoyyVrW?pwd=edv4
 ```
 
 ## 分享文件/目录
